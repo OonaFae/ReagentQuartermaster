@@ -2,8 +2,9 @@
     ReagentQuartermaster
     Configuration UI
 
-    A WotLK-3.3.5 compatible configuration panel built with
-    pure Lua/Widget API (no XML).
+    WotLK 3.3.5 — pure Lua, no ScrollFrame/Slider templates.
+    Scroll is driven entirely by an integer row-offset so there
+    is no SetVerticalScroll call and no hidden template hooks.
 --]]
 
 local RQ = ReagentQuartermaster
@@ -15,11 +16,11 @@ local FRAME_W     = 480
 local FRAME_H     = 520
 local ROW_H       = 26
 local ROW_PAD     = 2
-local LIST_TOP    = -170   -- y offset from top of frame where list area starts 
-local LIST_BOTTOM = 44     -- distance from bottom of frame where list area ends
+local LIST_TOP    = -170
+local LIST_BOTTOM = 44
 
 -- ============================================================
--- Helper: styled input box
+-- Helper: styled EditBox with placeholder text
 -- ============================================================
 local function MakeEditBox(parent, w, h, x, y, placeholder)
     local eb = CreateFrame("EditBox", nil, parent)
@@ -42,7 +43,6 @@ local function MakeEditBox(parent, w, h, x, y, placeholder)
         eb:SetText(placeholder)
         eb:SetTextColor(0.5, 0.5, 0.5, 1)
         local isPlaceholder = true
-
         eb:SetScript("OnEditFocusGained", function(self)
             if isPlaceholder then
                 self:SetText("")
@@ -61,12 +61,11 @@ local function MakeEditBox(parent, w, h, x, y, placeholder)
     else
         eb.IsPlaceholder = function() return false end
     end
-
     return eb
 end
 
 -- ============================================================
--- Helper: styled button
+-- Helper: UIPanelButton
 -- ============================================================
 local function MakeButton(parent, label, w, h, x, y, onClick)
     local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
@@ -78,9 +77,8 @@ local function MakeButton(parent, label, w, h, x, y, onClick)
 end
 
 -- ============================================================
--- Row pool
--- Rows are always parented to the content frame.
--- We never nil out the parent — we just hide unused rows.
+-- Row pool — rows are always children of the list content frame.
+-- We hide/show them; we never nil the parent.
 -- ============================================================
 local rowPool = {}
 
@@ -128,7 +126,7 @@ local function ReleaseRow(r)
 end
 
 -- ============================================================
--- Build the main frame (called once)
+-- BuildUI — called once
 -- ============================================================
 function RQ:BuildUI()
     if RQ.UI then return end
@@ -152,16 +150,16 @@ function RQ:BuildUI()
     f:SetBackdropBorderColor(0.6, 0.5, 0.2, 1)
     f:Hide()
 
-    -- Title bar stripe
+    -- Title bar
     local titleBg = f:CreateTexture(nil, "ARTWORK")
     titleBg:SetPoint("TOPLEFT",  f, "TOPLEFT",  5, -5)
     titleBg:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, -5)
     titleBg:SetHeight(36)
     titleBg:SetTexture(0.15, 0.12, 0.04, 1)
 
-    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOP", f, "TOP", 0, -16)
-    title:SetText("|cffFFD700Reagent|r|cffFFFFFFQuartermaster|r")
+    local titleText = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    titleText:SetPoint("TOP", f, "TOP", 0, -16)
+    titleText:SetText("|cffFFD700Reagent|r|cffFFFFFFQuartermaster|r")
 
     local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -2)
@@ -173,7 +171,7 @@ function RQ:BuildUI()
     divider:SetHeight(1)
     divider:SetTexture(0.5, 0.42, 0.15, 0.8)
 
-    -- ── Toggles ────────────────────────────────────────────────
+    -- Toggles
     f.enableCB = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
     f.enableCB:SetPoint("TOPLEFT", f, "TOPLEFT", 14, -56)
     f.enableCB:SetSize(24, 24)
@@ -190,7 +188,7 @@ function RQ:BuildUI()
     verboseLabel:SetPoint("LEFT", f.verboseCB, "RIGHT", 2, 0)
     verboseLabel:SetText("Show purchase messages")
 
-    -- ── Add-item area ──────────────────────────────────────────
+    -- Add-item area
     local addBg = f:CreateTexture(nil, "ARTWORK")
     addBg:SetPoint("TOPLEFT",  f, "TOPLEFT",  10, -88)
     addBg:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -88)
@@ -207,13 +205,11 @@ function RQ:BuildUI()
 
     f.nameEB = MakeEditBox(f, 272, 24, 14, -106, "e.g. Rune of Portals")
     f.qtyEB  = MakeEditBox(f, 72,  24, 294, -106, "20")
-
     f.nameEB:SetScript("OnEnterPressed", function() f.qtyEB:SetFocus() end)
     f.qtyEB:SetScript("OnEnterPressed",  function() RQ:UIAddItem() end)
-
     MakeButton(f, "Add / Update", 88, 24, 374, -106, function() RQ:UIAddItem() end)
 
-    -- ── Column headers ─────────────────────────────────────────
+    -- Column headers
     local hdrBg = f:CreateTexture(nil, "ARTWORK")
     hdrBg:SetPoint("TOPLEFT",  f, "TOPLEFT",  10, -150)
     hdrBg:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -150)
@@ -232,40 +228,68 @@ function RQ:BuildUI()
     hdrHave:SetPoint("TOPLEFT", f, "TOPLEFT", 342, -152)
     hdrHave:SetText("|cff88FF88Have|r")
 
-    -- ── Scroll frame ───────────────────────────────────────────
-    local sf = CreateFrame("ScrollFrame", "RQUI_ScrollFrame", f)
-    sf:SetPoint("TOPLEFT",     f, "TOPLEFT",    10,  LIST_TOP)
-    sf:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -30, LIST_BOTTOM)
+    -- ── List area ─────────────────────────────────────────────
+    -- Plain clipped Frame — no ScrollFrame, no Slider template.
+    -- Rows are placed by index offset; no pixel scrolling needed.
+    local listFrame = CreateFrame("Frame", nil, f)
+    listFrame:SetPoint("TOPLEFT",     f, "TOPLEFT",    10,  LIST_TOP)
+    listFrame:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -30, LIST_BOTTOM)
+    listFrame:SetClipsChildren(true)
 
-    -- Content frame: must be wider/taller than the scroll frame
-    local content = CreateFrame("Frame", nil, sf)
-    content:SetWidth(FRAME_W - 44)
-    content:SetHeight(4000)   -- plenty of room for rows
-    sf:SetScrollChild(content)
+    local content = CreateFrame("Frame", nil, listFrame)
+    content:SetAllPoints(listFrame)
 
-    f.scrollFrame   = sf
+    f.listFrame     = listFrame
     f.scrollContent = content
     f.activeRows    = {}
+    f.scrollOffset  = 0
+    f.scrollMax     = 0
 
-    -- Scroll bar (manual slider, no FauxScrollFrame dependency)
-    local slider = CreateFrame("Slider", "RQUI_Slider", f, "UIPanelScrollBarTemplate")
-    slider:SetPoint("TOPLEFT",    sf, "TOPRIGHT",    4, -16)
-    slider:SetPoint("BOTTOMLEFT", sf, "BOTTOMRIGHT", 4,  16)
-    slider:SetMinMaxValues(0, 0)
-    slider:SetValueStep(1)
-    slider:SetValue(0)
-    f.slider = slider
-
-    slider:SetScript("OnValueChanged", function(self, value)
-        sf:SetVerticalScroll(value * (ROW_H + ROW_PAD))
-        RQ:RefreshList()
+    -- Mousewheel scrolling
+    listFrame:EnableMouseWheel(true)
+    listFrame:SetScript("OnMouseWheel", function(self, delta)
+        RQ:ScrollList(-delta)
     end)
 
-    sf:EnableMouseWheel(true)
-    sf:SetScript("OnMouseWheel", function(self, delta)
-        local cur = slider:GetValue()
-        slider:SetValue(cur - delta)
-    end)
+    -- ── Scroll bar (100% manual, zero templates) ───────────────
+    local barFrame = CreateFrame("Frame", nil, f)
+    barFrame:SetPoint("TOPLEFT",    listFrame, "TOPRIGHT",    2, 0)
+    barFrame:SetPoint("BOTTOMLEFT", listFrame, "BOTTOMRIGHT", 2, 0)
+    barFrame:SetWidth(14)
+    barFrame:SetBackdrop({
+        bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 8, edgeSize = 8,
+        insets = { left=2, right=2, top=2, bottom=2 },
+    })
+    barFrame:SetBackdropColor(0.06, 0.06, 0.06, 0.8)
+    barFrame:SetBackdropBorderColor(0.30, 0.25, 0.10, 0.8)
+
+    -- Up arrow button
+    local upBtn = CreateFrame("Button", nil, barFrame)
+    upBtn:SetSize(14, 14)
+    upBtn:SetPoint("TOP", barFrame, "TOP", 0, -1)
+    local upTex = upBtn:CreateTexture(nil, "ARTWORK")
+    upTex:SetAllPoints()
+    upTex:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollUp-Up")
+    upBtn:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollUp-Up")
+    upBtn:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollUp-Down")
+    upBtn:SetScript("OnClick", function() RQ:ScrollList(-1) end)
+
+    -- Down arrow button
+    local downBtn = CreateFrame("Button", nil, barFrame)
+    downBtn:SetSize(14, 14)
+    downBtn:SetPoint("BOTTOM", barFrame, "BOTTOM", 0, 1)
+    downBtn:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
+    downBtn:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Down")
+    downBtn:SetScript("OnClick", function() RQ:ScrollList(1) end)
+
+    -- Thumb texture (decorative indicator, not draggable to keep it simple)
+    local thumb = barFrame:CreateTexture(nil, "ARTWORK")
+    thumb:SetWidth(10)
+    thumb:SetTexture(0.5, 0.42, 0.15, 0.85)
+    f.scrollThumb = thumb
+    f.scrollBar   = barFrame
 
     -- ── Status bar ─────────────────────────────────────────────
     local statusBg = f:CreateTexture(nil, "ARTWORK")
@@ -279,7 +303,19 @@ function RQ:BuildUI()
     f.statusLabel:SetText("Open a vendor to trigger auto-buy.")
 
     tinsert(UISpecialFrames, "ReagentQuartermasterUI")
-    RQ.UI = f
+    RQ.UI = f   -- assign LAST; no callbacks fire during construction
+end
+
+-- ============================================================
+-- Scroll helper
+-- ============================================================
+function RQ:ScrollList(delta)
+    if not RQ.UI then return end
+    local newOffset = math.max(0, math.min(RQ.UI.scrollMax, RQ.UI.scrollOffset + delta))
+    if newOffset ~= RQ.UI.scrollOffset then
+        RQ.UI.scrollOffset = newOffset
+        RQ:RefreshList()
+    end
 end
 
 -- ============================================================
@@ -289,6 +325,7 @@ function RQ:OpenUI()
     RQ:BuildUI()
     RQ.UI.enableCB:SetChecked(RQ.db.enabled)
     RQ.UI.verboseCB:SetChecked(RQ.db.verbose)
+    RQ.UI.scrollOffset = 0
     RQ:RefreshList()
     RQ.UI:Show()
 end
@@ -303,17 +340,15 @@ end
 function RQ:RefreshList()
     if not RQ.UI then return end
 
-    local sf      = RQ.UI.scrollFrame
     local content = RQ.UI.scrollContent
-    local slider  = RQ.UI.slider
 
-    -- Return all currently shown rows to the pool
+    -- Return all active rows to pool
     for _, row in ipairs(RQ.UI.activeRows) do
         ReleaseRow(row)
     end
     RQ.UI.activeRows = {}
 
-    -- Build sorted item list
+    -- Sorted item list
     local sorted = {}
     for name, qty in pairs(RQ.db.items) do
         table.insert(sorted, { name = name, qty = qty })
@@ -322,17 +357,17 @@ function RQ:RefreshList()
 
     local total = #sorted
 
-    -- How many rows can the scroll area show at once?
-    local sfHeight    = sf:GetHeight() or (FRAME_H - math.abs(LIST_TOP) - LIST_BOTTOM)
-    local visibleRows = math.max(1, math.floor(sfHeight / (ROW_H + ROW_PAD)))
+    -- How many rows fit?
+    local listH      = RQ.UI.listFrame:GetHeight() or (FRAME_H - math.abs(LIST_TOP) - LIST_BOTTOM)
+    local visRows    = math.max(1, math.floor(listH / (ROW_H + ROW_PAD)))
 
-    -- Update slider range; clamp current value
-    local maxScroll = math.max(0, total - visibleRows)
-    slider:SetMinMaxValues(0, maxScroll)
-    local offset = math.min(math.floor(slider:GetValue() + 0.5), maxScroll)
+    -- Clamp scroll offset
+    RQ.UI.scrollMax    = math.max(0, total - visRows)
+    RQ.UI.scrollOffset = math.max(0, math.min(RQ.UI.scrollMax, RQ.UI.scrollOffset))
+    local offset       = RQ.UI.scrollOffset
 
-    -- Render visible rows
-    for i = 1, visibleRows do
+    -- Place rows
+    for i = 1, visRows do
         local idx = i + offset
         if idx > total then break end
 
@@ -365,7 +400,30 @@ function RQ:RefreshList()
         table.insert(RQ.UI.activeRows, row)
     end
 
-    -- Status line
+    -- Update thumb position
+    local thumb  = RQ.UI.scrollThumb
+    local bar    = RQ.UI.scrollBar
+    if bar and thumb then
+        local barH   = bar:GetHeight() - 32   -- leave room for up/down buttons
+        if RQ.UI.scrollMax > 0 and barH > 0 then
+            local tH     = math.max(12, barH / (RQ.UI.scrollMax + visRows) * visRows)
+            local travel = barH - tH
+            local pos    = (RQ.UI.scrollOffset / RQ.UI.scrollMax) * travel
+            thumb:SetHeight(tH)
+            thumb:ClearAllPoints()
+            thumb:SetPoint("TOP", bar, "TOP", 0, -(16 + pos))
+            thumb:SetPoint("LEFT",  bar, "LEFT",  2, 0)
+            thumb:SetPoint("RIGHT", bar, "RIGHT", -2, 0)
+            thumb:Show()
+        else
+            thumb:ClearAllPoints()
+            thumb:SetPoint("TOPLEFT",  bar, "TOPLEFT",  2, -16)
+            thumb:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -2, 16)
+            thumb:Show()
+        end
+    end
+
+    -- Status
     local count = 0
     for _ in pairs(RQ.db.items) do count = count + 1 end
     RQ.UI.statusLabel:SetText(
@@ -401,7 +459,6 @@ function RQ:UIAddItem()
     RQ.db.items[name] = qtyNum
     RQ:Print("Saved: |cffffcc00" .. name .. "|r x" .. qtyNum, true)
 
-    -- Reset fields back to placeholder state
     nameEB:ClearFocus()
     qtyEB:ClearFocus()
     nameEB:SetText("e.g. Rune of Portals")

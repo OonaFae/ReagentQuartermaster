@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: ReagentQuartermaster
 ## Notes: Automatically purchase reagents and consumables from vendors up to a desired quantity.
-## Author: OonaFae
+## Author: ReagentQuartermaster
 ## Version: 1.0.0
 ## SavedVariables: ReagentQuartermasterDB
 

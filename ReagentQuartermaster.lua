@@ -13,7 +13,7 @@
 ReagentQuartermaster = {}
 local RQ = ReagentQuartermaster
 
--- Default database structure 
+-- Default database structure
 local DB_DEFAULTS = {
     items = {},       -- { [itemName] = desiredQty, ... }
     enabled = true,
