@@ -45,18 +45,18 @@ function RQ:OnAddonLoaded(addonName)
     if addonName ~= "ReagentQuartermaster" then return end
 
     -- Initialize or migrate saved variables
-    if not ReagentQuartermasterDB then
-        ReagentQuartermasterDB = {}
+    if not ReagentQuartermasterCharDB then
+        ReagentQuartermasterCharDB = {}
     end
 
     -- Apply defaults for any missing keys
     for k, v in pairs(DB_DEFAULTS) do
-        if ReagentQuartermasterDB[k] == nil then
-            ReagentQuartermasterDB[k] = v
+        if ReagentQuartermasterCharDB[k] == nil then
+            ReagentQuartermasterCharDB[k] = v
         end
     end
 
-    RQ.db = ReagentQuartermasterDB
+    RQ.db = ReagentQuartermasterCharDB
 
     print("|cff00ccff[ReagentQuartermaster]|r Loaded. Type |cffffcc00/rq|r or |cffffcc00/reagentqm|r to open settings.")
 end
